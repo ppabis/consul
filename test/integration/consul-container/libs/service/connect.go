@@ -158,7 +158,13 @@ type SidecarConfig struct {
 // node. The container exposes port serviceBindPort and envoy admin port
 // (19000) by mapping them onto host ports. The container's name has a prefix
 // combining datacenter and name.
-func NewConnectService(ctx context.Context, sidecarCfg SidecarConfig, serviceBindPorts []int, node cluster.Agent) (*ConnectContainer, error) {
+func NewConnectService(
+	ctx context.Context,
+	sidecarCfg SidecarConfig,
+	serviceBindPorts []int,
+	node cluster.Agent,
+	customContainerConf ...func(request testcontainers.ContainerRequest) testcontainers.ContainerRequest,
+) (*ConnectContainer, error) {
 	nodeConfig := node.GetConfig()
 	if nodeConfig.ScratchDir == "" {
 		return nil, fmt.Errorf("node ScratchDir is required")
@@ -251,6 +257,11 @@ func NewConnectService(ctx context.Context, sidecarCfg SidecarConfig, serviceBin
 	exposedPorts := make([]string, len(appPortStrs))
 	copy(exposedPorts, appPortStrs)
 	exposedPorts = append(exposedPorts, adminPortStr)
+
+	for _, containerReqOverride := range customContainerConf {
+		req = containerReqOverride(req)
+	}
+
 	info, err := cluster.LaunchContainerOnNode(ctx, node, req, exposedPorts)
 	if err != nil {
 		return nil, err

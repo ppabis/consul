@@ -135,7 +135,7 @@ func BasicPeeringTwoClustersSetup(
 			HTTPPort: 8080,
 			GRPCPort: 8079,
 		}
-		serverService, serverSidecarService, err = libservice.CreateAndRegisterStaticServerAndSidecar(clientNode, &serviceOpts)
+		serverService, serverSidecarService, err = libservice.CreateAndRegisterStaticServerAndSidecar(clientNode, &serviceOpts, nil)
 		require.NoError(t, err)
 
 		libassert.CatalogServiceExists(t, acceptingClient, libservice.StaticServerServiceName, nil)
