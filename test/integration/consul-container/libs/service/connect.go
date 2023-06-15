@@ -163,7 +163,7 @@ func NewConnectService(
 	sidecarCfg SidecarConfig,
 	serviceBindPorts []int,
 	node cluster.Agent,
-	customContainerConf ...func(request testcontainers.ContainerRequest) testcontainers.ContainerRequest,
+	customContainerConf func(request testcontainers.ContainerRequest) testcontainers.ContainerRequest,
 ) (*ConnectContainer, error) {
 	nodeConfig := node.GetConfig()
 	if nodeConfig.ScratchDir == "" {
@@ -258,8 +258,8 @@ func NewConnectService(
 	copy(exposedPorts, appPortStrs)
 	exposedPorts = append(exposedPorts, adminPortStr)
 
-	for _, containerReqOverride := range customContainerConf {
-		req = containerReqOverride(req)
+	if customContainerConf != nil {
+		req = customContainerConf(req)
 	}
 
 	info, err := cluster.LaunchContainerOnNode(ctx, node, req, exposedPorts)

@@ -226,8 +226,9 @@ func TestWASMLocal(t *testing.T) {
 	// Check that header is present after wasm applied
 	c2 := cleanhttp.DefaultClient()
 
+	// The wasm plugin is not always applied on the first call. Retry and see if it is loaded.
 	fail := true
-	for i := range [3]int{} {
+	for i := range [5]int{} {
 		res2, err := c2.Get(fmt.Sprintf("http://localhost:%d", port))
 		if err != nil {
 			t.Fatal(err)
@@ -244,7 +245,7 @@ func TestWASMLocal(t *testing.T) {
 	}
 
 	if fail {
-		t.Fatal(":(")
+		t.Fatal("test header not present")
 	}
 
 }
@@ -271,8 +272,13 @@ func createServices(t *testing.T, cluster *libcluster.Cluster) libservice.Servic
 		FileMode:          777,
 	}
 
+	customFn := chain(
+		copyFilesToContainer([]testcontainers.ContainerFile{wasmFile}),
+		chownFiles([]testcontainers.ContainerFile{wasmFile}, "envoy", true),
+	)
+
 	// Create a service and proxy instance
-	_, _, err = libservice.CreateAndRegisterStaticServerAndSidecar(node, serviceOpts, copyFilesToContainer([]testcontainers.ContainerFile{wasmFile}))
+	_, _, err = libservice.CreateAndRegisterStaticServerAndSidecar(node, serviceOpts, customFn)
 	require.NoError(t, err)
 
 	libassert.CatalogServiceExists(t, client, "static-server-sidecar-proxy", nil)
@@ -280,7 +286,7 @@ func createServices(t *testing.T, cluster *libcluster.Cluster) libservice.Servic
 
 	// Create a client proxy instance with the server as an upstream
 
-	clientConnectProxy, err := libservice.CreateAndRegisterStaticClientSidecar(node, "", false, false)
+	clientConnectProxy, err := libservice.CreateAndRegisterStaticClientSidecar(node, "", false, false, nil)
 	require.NoError(t, err)
 
 	libassert.CatalogServiceExists(t, client, "static-client-sidecar-proxy", nil)
@@ -454,9 +460,45 @@ func buildNginxFileServer(t *testing.T, conf testcontainers.ContainerFile, files
 	return fmt.Sprintf("http://%s:%s", ip, mappedPort.Port())
 }
 
+func chain(fns ...func(testcontainers.ContainerRequest) testcontainers.ContainerRequest) func(testcontainers.ContainerRequest) testcontainers.ContainerRequest {
+	return func(req testcontainers.ContainerRequest) testcontainers.ContainerRequest {
+		for _, fn := range fns {
+			req = fn(req)
+		}
+
+		return req
+	}
+}
+
 func copyFilesToContainer(files []testcontainers.ContainerFile) func(testcontainers.ContainerRequest) testcontainers.ContainerRequest {
 	return func(req testcontainers.ContainerRequest) testcontainers.ContainerRequest {
 		req.Files = files
+		return req
+	}
+}
+
+func chownFiles(files []testcontainers.ContainerFile, user string, sudo bool) func(request testcontainers.ContainerRequest) testcontainers.ContainerRequest {
+	return func(req testcontainers.ContainerRequest) testcontainers.ContainerRequest {
+		req.LifecycleHooks = append(req.LifecycleHooks, testcontainers.ContainerLifecycleHooks{
+			PostStarts: []testcontainers.ContainerHook{
+				func(ctx context.Context, c testcontainers.Container) error {
+					cmd := []string{}
+					if sudo {
+						cmd = append(cmd, "sudo")
+					}
+
+					cmd = append(cmd, "chown", user)
+
+					for _, f := range files {
+						cmd = append(cmd, f.ContainerFilePath)
+					}
+
+					_, _, err := c.Exec(ctx, cmd)
+					return err
+				},
+			},
+		})
+
 		return req
 	}
 }

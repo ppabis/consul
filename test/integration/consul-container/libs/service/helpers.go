@@ -82,9 +82,6 @@ func createAndRegisterStaticServerAndSidecar(node libcluster.Agent, httpPort int
 		return nil, nil, err
 	}
 
-	// THIS IS A HACK @LANDA remove this
-	serverConnectProxy.container.Exec(context.Background(), []string{"sudo", "chown", "envoy", "/wasm_add_header.wasm"})
-
 	deferClean.Add(func() {
 		_ = serverConnectProxy.Terminate()
 	})
@@ -160,7 +157,7 @@ func CreateAndRegisterStaticClientSidecar(
 	peerName string,
 	localMeshGateway bool,
 	enableTProxy bool,
-	customContainerConf ...func(request testcontainers.ContainerRequest) testcontainers.ContainerRequest,
+	customContainerConf func(request testcontainers.ContainerRequest) testcontainers.ContainerRequest,
 ) (*ConnectContainer, error) {
 	// Do some trickery to ensure that partial completion is correctly torn
 	// down, but successful execution is not.
@@ -213,7 +210,7 @@ func CreateAndRegisterStaticClientSidecar(
 		EnableTProxy: enableTProxy,
 	}
 
-	clientConnectProxy, err := NewConnectService(context.Background(), sidecarCfg, []int{libcluster.ServiceUpstreamLocalBindPort}, node, customContainerConf...)
+	clientConnectProxy, err := NewConnectService(context.Background(), sidecarCfg, []int{libcluster.ServiceUpstreamLocalBindPort}, node, customContainerConf)
 	if err != nil {
 		return nil, err
 	}
