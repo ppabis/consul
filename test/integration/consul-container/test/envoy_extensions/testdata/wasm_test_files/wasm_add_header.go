@@ -16,8 +16,6 @@ type vmContext struct {
 }
 
 func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
-	proxywasm.LogInfo("WE ARE HERE NOW!!!!!!!!!!")
-
 	return &pluginContext{}
 }
 
