@@ -1,8 +1,9 @@
 package envoy_extensions
 
 import (
+	"bufio"
 	"context"
-	sha2562 "crypto/sha256"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -28,10 +29,12 @@ import (
 func TestWASMRemote(t *testing.T) {
 	t.Parallel()
 
+	// build all the file paths we will need for the test
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	hostWASMDir := fmt.Sprintf("%s/testdata/wasm_test_files", cwd)
 
 	buildWASM(t, hostWASMDir)
@@ -105,7 +108,7 @@ func TestWASMRemote(t *testing.T) {
 									},
 									"URI": fmt.Sprintf("%s/wasm_add_header.wasm", uri),
 								},
-								"SHA256": sha256(t, fmt.Sprintf("%s/wasm_add_header.go.wasm", hostWASMDir)),
+								"SHA256": sha256FromFile(t, fmt.Sprintf("%s/wasm_add_header.go.wasm", hostWASMDir)),
 							},
 						},
 						"Configuration": "plugin configuration",
@@ -300,7 +303,25 @@ func buildWASM(t *testing.T, hostWASMDir string) {
 	// if not, rebuild wasm file
 
 	containerDir := "/home/tinygo"
-	containerWASMFile := fmt.Sprintf("%s/wasm_add_header.go.wasm", containerDir)
+
+	containerWASMSource := fmt.Sprintf("%s/wasm_add_header.go", containerDir)
+	containerGoMod := fmt.Sprintf("%s/go.mod", containerDir)
+	containerGoSum := fmt.Sprintf("%s/go.sum", containerDir)
+	containerWASMOut := fmt.Sprintf("%s/wasm_add_header.go.wasm", containerDir)
+
+	hostWASMSource := fmt.Sprintf("%s/wasm_add_header.go", hostWASMDir)
+	hostGoMod := fmt.Sprintf("%s/go.mod", hostWASMDir)
+	hostGoSum := fmt.Sprintf("%s/go.sum", hostWASMDir)
+	hostWASMOut := fmt.Sprintf("%s/wasm_add_header.go.wasm", hostWASMDir)
+
+	lockFile := fmt.Sprintf("%s.lock", hostWASMOut)
+
+	// check if the current build exists and is up-to-date
+
+	ok, sha := buildUpToDate(t, hostWASMOut, lockFile)
+	if ok {
+		return
+	}
 
 	req := testcontainers.ContainerRequest{
 		Image: "tinygo/tinygo:sha-598cb1e4ddce53d85600a1b7724ed39eea80e119",
@@ -313,19 +334,19 @@ func buildWASM(t *testing.T, hostWASMDir string) {
 		},
 		Files: []testcontainers.ContainerFile{
 			{
-				HostFilePath:      fmt.Sprintf("%s/wasm_add_header.go", hostWASMDir),
-				ContainerFilePath: fmt.Sprintf("%s/wasm_add_header.go", containerDir),
-				FileMode:          777,
+				HostFilePath:      hostWASMSource,
+				ContainerFilePath: containerWASMSource,
+				FileMode:          755,
 			},
 			{
-				HostFilePath:      fmt.Sprintf("%s/go.mod", hostWASMDir),
-				ContainerFilePath: fmt.Sprintf("%s/go.mod", containerDir),
-				FileMode:          777,
+				HostFilePath:      hostGoMod,
+				ContainerFilePath: containerGoMod,
+				FileMode:          755,
 			},
 			{
-				HostFilePath:      fmt.Sprintf("%s/go.sum", hostWASMDir),
-				ContainerFilePath: fmt.Sprintf("%s/go.sum", containerDir),
-				FileMode:          777,
+				HostFilePath:      hostGoSum,
+				ContainerFilePath: containerGoSum,
+				FileMode:          755,
 			},
 		},
 	}
@@ -346,14 +367,14 @@ func buildWASM(t *testing.T, hostWASMDir string) {
 	}
 
 	// The testcontainers.ContainerFile does not honor the filemode set on the files for some reason
-	// so we can just chown them to the default user on the image
+	// so we can just chmod them
 	_, _, err = buildC.Exec(ctx, []string{
 		"sudo",
-		"chown",
-		"tinygo",
-		fmt.Sprintf("%s/wasm_add_header.go", containerDir),
-		fmt.Sprintf("%s/go.mod", containerDir),
-		fmt.Sprintf("%s/go.sum", containerDir),
+		"chmod",
+		"+r",
+		containerWASMSource,
+		containerGoMod,
+		containerGoSum,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -363,22 +384,22 @@ func buildWASM(t *testing.T, hostWASMDir string) {
 		"tinygo",
 		"build",
 		"-o",
-		containerWASMFile,
+		containerWASMOut,
 		"-scheduler=none",
 		"-target=wasi",
-		fmt.Sprintf("%s/wasm_add_header.go", containerDir),
+		containerWASMSource,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	r, err := buildC.CopyFileFromContainer(ctx, containerWASMFile)
+	r, err := buildC.CopyFileFromContainer(ctx, containerWASMOut)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer r.Close()
 
-	f, err := os.Create(fmt.Sprintf("%s/wasm_add_header.go.wasm", hostWASMDir))
+	f, err := os.Create(hostWASMOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,6 +411,23 @@ func buildWASM(t *testing.T, hostWASMDir string) {
 	}
 
 	defer buildC.Terminate(ctx)
+
+	// Update the lock file. os.Create will truncate the file if it exists already.
+	lockF, err := os.Create(fmt.Sprintf("%s.lock", hostWASMOut))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockF.Close()
+
+	w := bufio.NewWriter(lockF)
+	_, err = w.WriteString(sha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = w.Flush()
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func buildNginxFileServer(t *testing.T, conf testcontainers.ContainerFile, files ...testcontainers.ContainerFile) string {
@@ -503,17 +541,64 @@ func chownFiles(files []testcontainers.ContainerFile, user string, sudo bool) fu
 	}
 }
 
-func sha256(t *testing.T, filepath string) string {
+func sha256FromFile(t *testing.T, filepath string) string {
 	f, err := os.Open(filepath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
 
-	h := sha2562.New()
+	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		t.Fatal(err)
 	}
 
 	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+func buildUpToDate(t *testing.T, sourcePath, lockPath string) (bool, string) {
+	if _, err := os.Stat(lockPath); err != nil {
+		// lock file does not exist
+		cleanStaleFile(t, sourcePath)
+
+		return false, ""
+	}
+
+	if _, err := os.Stat(sourcePath); err != nil {
+		// compiled wasm does not exist
+		return false, ""
+	}
+
+	f, err := os.Open(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	lockBytes, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sha := sha256FromFile(t, sourcePath)
+
+	upToDate := string(lockBytes) == sha
+
+	if !upToDate {
+		cleanStaleFile(t, sourcePath)
+	}
+
+	return upToDate, sha
+}
+
+func cleanStaleFile(t *testing.T, filePath string) {
+	if _, err := os.Stat(filePath); err != nil {
+		return
+	}
+
+	// build is out of date, wipe compiled wasm
+	err := os.Remove(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 }

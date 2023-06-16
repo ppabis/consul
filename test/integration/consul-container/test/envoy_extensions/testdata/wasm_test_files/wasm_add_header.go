@@ -36,7 +36,7 @@ type httpHeaders struct {
 }
 
 func (ctx *httpHeaders) OnHttpResponseHeaders(int, bool) types.Action {
-	proxywasm.LogInfo("adding header: x-test:true")
+	proxywasm.LogDebug("adding header: x-test:true")
 
 	err := proxywasm.AddHttpResponseHeader("x-test", "true")
 	if err != nil {
