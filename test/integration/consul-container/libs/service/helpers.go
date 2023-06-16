@@ -213,7 +213,7 @@ func CreateAndRegisterStaticClientSidecar(
 		EnableTProxy: enableTProxy,
 	}
 
-	clientConnectProxy, err := NewConnectService(context.Background(), sidecarCfg, []int{libcluster.ServiceUpstreamLocalBindPort}, node, customContainerConf)
+	clientConnectProxy, err := NewConnectService(context.Background(), sidecarCfg, []int{libcluster.ServiceUpstreamLocalBindPort}, node, nil)
 	if err != nil {
 		return nil, err
 	}
