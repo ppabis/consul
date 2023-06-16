@@ -281,7 +281,7 @@ func createServices(t *testing.T, cluster *libcluster.Cluster) libservice.Servic
 	)
 
 	// Create a service and proxy instance
-	_, _, err = libservice.CreateAndRegisterStaticServerAndSidecar(node, serviceOpts, customFn)
+	_, _, err = libservice.CreateAndRegisterStaticServerAndSidecarWithCustomContainerConfig(node, serviceOpts, customFn)
 	require.NoError(t, err)
 
 	libassert.CatalogServiceExists(t, client, "static-server-sidecar-proxy", nil)
@@ -289,7 +289,7 @@ func createServices(t *testing.T, cluster *libcluster.Cluster) libservice.Servic
 
 	// Create a client proxy instance with the server as an upstream
 
-	clientConnectProxy, err := libservice.CreateAndRegisterStaticClientSidecar(node, "", false, false, nil)
+	clientConnectProxy, err := libservice.CreateAndRegisterStaticClientSidecar(node, "", false, false)
 	require.NoError(t, err)
 
 	libassert.CatalogServiceExists(t, client, "static-client-sidecar-proxy", nil)

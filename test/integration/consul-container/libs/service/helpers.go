@@ -92,7 +92,7 @@ func createAndRegisterStaticServerAndSidecar(node libcluster.Agent, httpPort int
 	return serverService, serverConnectProxy, nil
 }
 
-func CreateAndRegisterStaticServerAndSidecar(node libcluster.Agent, serviceOpts *ServiceOpts, customContainerCfg func(testcontainers.ContainerRequest) testcontainers.ContainerRequest, containerArgs ...string) (Service, Service, error) {
+func CreateAndRegisterStaticServerAndSidecarWithCustomContainerConfig(node libcluster.Agent, serviceOpts *ServiceOpts, customContainerCfg func(testcontainers.ContainerRequest) testcontainers.ContainerRequest, containerArgs ...string) (Service, Service, error) {
 	// Register the static-server service and sidecar first to prevent race with sidecar
 	// trying to get xDS before it's ready
 	p := serviceOpts.HTTPPort
@@ -123,6 +123,10 @@ func CreateAndRegisterStaticServerAndSidecar(node libcluster.Agent, serviceOpts 
 		Check:     &agentCheck,
 	}
 	return createAndRegisterStaticServerAndSidecar(node, serviceOpts.HTTPPort, serviceOpts.GRPCPort, req, customContainerCfg, containerArgs...)
+}
+
+func CreateAndRegisterStaticServerAndSidecar(node libcluster.Agent, serviceOpts *ServiceOpts, containerArgs ...string) (Service, Service, error) {
+	return CreateAndRegisterStaticServerAndSidecarWithCustomContainerConfig(node, serviceOpts, nil, containerArgs...)
 }
 
 func CreateAndRegisterStaticServerAndSidecarWithChecks(node libcluster.Agent, serviceOpts *ServiceOpts) (Service, Service, error) {
@@ -157,7 +161,6 @@ func CreateAndRegisterStaticClientSidecar(
 	peerName string,
 	localMeshGateway bool,
 	enableTProxy bool,
-	customContainerConf func(request testcontainers.ContainerRequest) testcontainers.ContainerRequest,
 ) (*ConnectContainer, error) {
 	// Do some trickery to ensure that partial completion is correctly torn
 	// down, but successful execution is not.
